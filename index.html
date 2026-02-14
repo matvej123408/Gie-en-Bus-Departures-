@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gießen Bus Board</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      color: #00ff9c;
+      font-family: monospace;
+      padding: 20px;
+    }
+    h1 { text-align: center; }
+    select {
+      width: 100%;
+      padding: 10px;
+      font-size: 18px;
+      background: #111;
+      color: #0f0;
+      border: 1px solid #0f0;
+      margin-bottom: 20px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 70px 1fr 80px;
+      gap: 8px;
+      border-bottom: 1px solid #033;
+      padding: 8px 0;
+      font-size: 20px;
+    }
+    .time { text-align: right; }
+    .hint { opacity: .7; font-size: 14px; text-align:center; }
+  </style>
+</head>
+<body>
+  <h1>🚌 Gießen — Табло</h1>
+  <select id="stops">
+    <option value="">Загрузка остановок…</option>
+  </select>
+  <div id="board">Выбери остановку</div>
+  <div class="hint">Автообновление каждые 30 секунд</div>
+
+  <script>
+    const stopsSelect = document.getElementById("stops");
+    const board = document.getElementById("board");
+    let currentStop = null;
+
+    async function loadStops() {
+      try {
+        const res = await fetch("https://api.transport.rest/stops?query=Gießen&results=50");
+        const data = await res.json();
+        const stops = Array.isArray(data) ? data : (data.stops || []);
+
+        stopsSelect.innerHTML = '<option value="">Выбери остановку…</option>';
+        stops.forEach(stop => {
+          const opt = document.createElement("option");
+          opt.value = stop.id;
+          opt.textContent = stop.name;
+          stopsSelect.appendChild(opt);
+        });
+
+        if (!stops.length) {
+          stopsSelect.innerHTML = '<option value="">Остановки не найдены</option>';
+        }
+      } catch (e) {
+        console.error(e);
+        stopsSelect.innerHTML = '<option value="">Ошибка загрузки остановок</option>';
+        board.textContent = "Проверь подключение к интернету";
+      }
+    }
+
+    function minutesFromNow(iso) {
+      if (!iso) return "—";
+      const min = Math.round((new Date(iso) - new Date()) / 60000);
+      if (isNaN(min)) return "—";
+      return min > 0 ? (min + " мин") : "сейчас";
+    }
+
+    async function loadDepartures(id) {
+      try {
+        board.textContent = "Обновление табло…";
+        const res = await fetch(`https://api.transport.rest/stops/${id}/departures?duration=30`);
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.departures || data);
+
+        if (!list || !list.length) {
+          board.textContent = "Нет отправлений в ближайшие 30 минут";
+          return;
+        }
+
+        board.innerHTML = list.slice(0, 8).map(d => {
+          const line = d.line?.name || d.line || "?";
+          const dir = d.direction || "";
+          const when = d.when || d.plannedWhen;
+          return `
+            <div class="row">
+              <div>🚌 ${line}</div>
+              <div>${dir}</div>
+              <div class="time">${minutesFromNow(when)}</div>
+            </div>
+          `;
+        }).join("");
+      } catch (e) {
+        console.error(e);
+        board.textContent = "Ошибка загрузки табло";
+      }
+    }
+
+    stopsSelect.onchange = e => {
+      currentStop = e.target.value;
+      if (currentStop) loadDepartures(currentStop);
+    };
+
+    setInterval(() => {
+      if (currentStop) loadDepartures(currentStop);
+    }, 30000);
+
+    loadStops();
+  </script>
+</body>
+</html>
