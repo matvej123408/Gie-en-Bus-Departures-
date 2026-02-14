@@ -44,81 +44,72 @@
   <div class="hint">Автообновление каждые 30 секунд</div>
 
   <script>
-    const stopsSelect = document.getElementById("stops");
-    const board = document.getElementById("board");
-    let currentStop = null;
+const PROXY = "https://cors.isomorphic-git.org/";
+const stopsSelect = document.getElementById("stops");
+const board = document.getElementById("board");
+let currentStop = null;
 
-    async function loadStops() {
-      try {
-        const res = await fetch("https://api.transport.rest/stops?query=Gießen&results=50");
-        const data = await res.json();
-        const stops = Array.isArray(data) ? data : (data.stops || []);
+async function loadStops() {
+  try {
+    const res = await fetch(PROXY + "https://api.transport.rest/stops?query=Gießen&results=50");
+    const data = await res.json();
+    const stops = Array.isArray(data) ? data : (data.stops || []);
+    
+    stopsSelect.innerHTML = '<option value="">Выбери остановку…</option>';
+    stops.forEach(stop => {
+      const opt = document.createElement("option");
+      opt.value = stop.id;
+      opt.textContent = stop.name;
+      stopsSelect.appendChild(opt);
+    });
+  } catch (e) {
+    stopsSelect.innerHTML = '<option value="">Ошибка загрузки остановок</option>';
+    board.textContent = "Проверь подключение к интернету";
+    console.error(e);
+  }
+}
 
-        stopsSelect.innerHTML = '<option value="">Выбери остановку…</option>';
-        stops.forEach(stop => {
-          const opt = document.createElement("option");
-          opt.value = stop.id;
-          opt.textContent = stop.name;
-          stopsSelect.appendChild(opt);
-        });
+async function loadDepartures(id) {
+  try {
+    board.textContent = "Обновление табло…";
+    const res = await fetch(PROXY + `https://api.transport.rest/stops/${id}/departures?duration=30`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : (data.departures || data);
 
-        if (!stops.length) {
-          stopsSelect.innerHTML = '<option value="">Остановки не найдены</option>';
-        }
-      } catch (e) {
-        console.error(e);
-        stopsSelect.innerHTML = '<option value="">Ошибка загрузки остановок</option>';
-        board.textContent = "Проверь подключение к интернету";
-      }
+    if (!list || !list.length) {
+      board.textContent = "Нет отправлений в ближайшие 30 минут";
+      return;
     }
 
-    function minutesFromNow(iso) {
-      if (!iso) return "—";
-      const min = Math.round((new Date(iso) - new Date()) / 60000);
-      if (isNaN(min)) return "—";
-      return min > 0 ? (min + " мин") : "сейчас";
-    }
+    board.innerHTML = list.slice(0, 8).map(d => {
+      const line = d.line?.name || d.line || "?";
+      const dir = d.direction || "";
+      const when = d.when || d.plannedWhen;
+      const min = Math.round((new Date(when) - new Date()) / 60000);
+      return `
+        <div class="row">
+          <div>🚌 ${line}</div>
+          <div>${dir}</div>
+          <div class="time">${min > 0 ? min + " мин" : "сейчас"}</div>
+        </div>
+      `;
+    }).join("");
+  } catch (e) {
+    board.textContent = "Ошибка загрузки табло";
+    console.error(e);
+  }
+}
 
-    async function loadDepartures(id) {
-      try {
-        board.textContent = "Обновление табло…";
-        const res = await fetch(`https://api.transport.rest/stops/${id}/departures?duration=30`);
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : (data.departures || data);
+stopsSelect.onchange = e => {
+  currentStop = e.target.value;
+  if (currentStop) loadDepartures(currentStop);
+};
 
-        if (!list || !list.length) {
-          board.textContent = "Нет отправлений в ближайшие 30 минут";
-          return;
-        }
+setInterval(() => {
+  if (currentStop) loadDepartures(currentStop);
+}, 30000);
 
-        board.innerHTML = list.slice(0, 8).map(d => {
-          const line = d.line?.name || d.line || "?";
-          const dir = d.direction || "";
-          const when = d.when || d.plannedWhen;
-          return `
-            <div class="row">
-              <div>🚌 ${line}</div>
-              <div>${dir}</div>
-              <div class="time">${minutesFromNow(when)}</div>
-            </div>
-          `;
-        }).join("");
-      } catch (e) {
-        console.error(e);
-        board.textContent = "Ошибка загрузки табло";
-      }
-    }
-
-    stopsSelect.onchange = e => {
-      currentStop = e.target.value;
-      if (currentStop) loadDepartures(currentStop);
-    };
-
-    setInterval(() => {
-      if (currentStop) loadDepartures(currentStop);
-    }, 30000);
-
-    loadStops();
+loadStops();
   </script>
 </body>
 </html>
