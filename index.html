@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gießen Bus Board (RMV)</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    body { margin:0; background:#000; color:#00ff9c; font-family: monospace; padding:16px; }
+    h1 { text-align:center; margin: 0 0 10px; }
+    select { width:100%; padding:10px; background:#111; color:#0f0; border:1px solid #0f0; font-size:16px; }
+    .row { display:grid; grid-template-columns:70px 1fr 90px; gap:8px; padding:8px 0; border-bottom:1px solid #033; }
+    .time { text-align:right; }
+    .hint { opacity:.7; font-size:12px; text-align:center; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <h1>🚌 Gießen — Табло (RMV)</h1>
+  <select id="stops"><option value="">Загрузка остановок…</option></select>
+  <div id="board">Выбери остановку</div>
+  <div class="hint">Автообновление каждые 30 секунд</div>
+
+  <script>
+    // ВСТАВЬ СЮДА СВОЙ accessId от RMV
+    const API_KEY = "1775f9f1-32b8-48ad-98c8-06b2f6276fa0";
+
+    const stopsSelect = document.getElementById("stops");
+    const board = document.getElementById("board");
+    let currentStop = null;
+
+    async function loadStops() {
+      try {
+        const url = `https://www.rmv.de/hapi/location.name?accessId=${API_KEY}&input=Gießen&format=json&type=S`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const stops = data.stopLocation || [];
+
+        stopsSelect.innerHTML = '<option value="">Выбери остановку…</option>';
+        stops.forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = s.name;
+          stopsSelect.appendChild(opt);
+        });
+
+        if (!stops.length) stopsSelect.innerHTML = '<option value="">Остановки не найдены</option>';
+      } catch (e) {
+        console.error(e);
+        stopsSelect.innerHTML = '<option value="">Ошибка загрузки остановок</option>';
+        board.textContent = "Проверь доступ к интернету или ключ API";
+      }
+    }
+
+    function minutesFromNow(timeStr) {
+      if (!timeStr) return "—";
+      const parts = timeStr.split(':');
+      const now = new Date();
+      const t = new Date(now);
+      t.setHours(+parts[0], +parts[1], 0, 0);
+      let min = Math.round((t - now) / 60000);
+      if (min < 0) min += 24*60;
+      return min > 0 ? (min + " мин") : "сейчас";
+    }
+
+    async function loadDepartures(id) {
+      try {
+        board.textContent = "Обновление табло…";
+        const url = `https://www.rmv.de/hapi/departureBoard?accessId=${API_KEY}&id=${id}&format=json&maxJourneys=8`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const list = data.Departure || [];
+
+        if (!list.length) {
+          board.textContent = "Нет отправлений в ближайшее время";
+          return;
+        }
+
+        board.innerHTML = list.map(d => `
+          <div class="row">
+            <div>🚌 ${d.line}</div>
+            <div>${d.direction || ""}</div>
+            <div class="time">${minutesFromNow(d.rtTime || d.time)}</div>
+          </div>
+        `).join("");
+      } catch (e) {
+        console.error(e);
+        board.textContent = "Ошибка загрузки табло";
+      }
+    }
+
+    stopsSelect.onchange = e => {
+      currentStop = e.target.value;
+      if (currentStop) loadDepartures(currentStop);
+    };
+
+    setInterval(() => { if (currentStop) loadDepartures(currentStop); }, 30000);
+
+    loadStops();
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js');
+    }
+  </script>
+</body>
+</html>
